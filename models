@@ -1,0 +1,228 @@
+Modelos de distribucion de especies
+
+library(spocc)
+library(raster)
+library(dismo)
+library(rJava)
+library(rgeos)
+library(grDevices)
+library(mapr)
+library(ENMeval)
+library(ROCR)
+library(vcd)
+library(sp)
+library(jasonlite)
+library(maptools)
+
+data(wrld_simpl)
+plot(wrld_simpl, xlimit(), ylimit())
+
+clima <- getData("worldclim", var = 'bio', res = 2.5)
+
+#Climate
+clima1 <- stack(clima)
+bio1 <- clima1[[1]]
+nrow(bio1)
+extent(bio1)
+values(bio1)
+length(values(bio1))
+
+#raster
+nuevo <- raster(nrow = nrow(bio1)/10, ncol(bio1)/10)
+extent(nuevo) <- extent(bio1)
+
+#nueva variable
+nuevo <- resample(x = bio1, y = nuevo, method = "billinear")
+
+wet <- clima1[[13]]
+dry <- clima1[[14]]
+
+diff <- dry - wet
+ 
+#calc
+humedad <- stack(wet, dry)
+promedio <- calc(humedad, fun = mean)
+pairs(humedad[[1:2]]) #analisis de correlacio
+
+#Registros
+ocurrencias <- gbif(genus = "Coenogonium", species = "linkii")
+write.csv(ocurrencias, "registros")
+ocurrencias <- subset(ocurrencias,!is.na(lat) & !is.na(lon)
+ocurrencias <- ocurrencias[!duplicated(ocurrencias[c("lat", "lon"),])]
+
+table(ocurrencias$basisORecord)
+preservados <- subset(ocurrencias, basisOfRecord == "PRESERVED_SPECIMEN")
+coordinates(preservados) <- ~lon + lat #espaciales para graficar
+src <- CRS("+init=epsg:4326")
+crs(preservados) <- src
+
+#forma2
+registros <- occ(query = "coenogonium linkii", from = 'gbif', gbifopts = list(country = c('CO', 'BR')),has_coords = TRUE, limit = 100)
+registros <- occ2df(registros)
+ocu <- as.data.frame(registros[,c(2,3)])
+colnames(ocu) <- c('Lon', 'Lat')
+ocu <- subset(ocu,!is.na(lat) & !is.na(lon))
+ocu <- ocu[!duplicated(ocu)]
+
+map_ggplot(registros)
+
+
+
+plot(bio1[[1]])
+plot(preferencias, add = T) #Analizar datos extremos
+condiciones <- extract(clima, preferencias)
+head(condiciones)
+sindatos <- is.na(condiciones[,1])
+table(sindatos)
+
+shape_world <- shapefile("path")
+countryshape <- subset(shape-world, country == "country")
+colom <- maps::map("world",regions = "Colombia")
+crs(shape_world)
+
+mapa <- spTransform(countryshape, crs(preservados))
+
+sobrelapan <- over(preservados, mapa)
+countrydata <- subset(preservados, !is.na(sobrelapan$FIPS)) #solo los registros que sobrelapan el poligono
+
+#para evitar el ruido es preferible solo un punto por celda
+celdas <- cellFromXY(clima[[1]], preservados)
+datos <- preservados[!duplicated(celdas)]
+
+
+para exportar
+shapefile(datos, "filename", overwrite = T)
+
+
+#Buffer
+bufer <- buffer(datos, width = 400000) #bufer de 400km
+
+#jugar con el mapa
+ext <- extent(-79.0125, -4.2083333, -66.84233333333333, 12.4461111)
+areas <- crop(clima, extent(buffer)) #un rectangulo del area de los puntos
+areas <- mask(areas, buffer) #el area exacta que coge todos los registros
+
+writeRaster(areas,
+    filename = paste0("", names(areas)), ".asc"),
+    format = "ascii",
+    bylayer = T,
+    overwrte = T)
+
+set.seed(1)
+bg <- sampleRandom(x = areas, size = 10000, na.rm = T, sp = T) #solo usar esta 
+bg1 <- randomPoints(areas, 10000, p = datos) #hacen lo mismo pero diferente
+colnames(entorno) <- c('Lon', 'Lat')
+plot(areas[[1]])
+plot(bg, add = T)
+plot(datos, add = T, col = "red")
+
+trainPts <- rbind(modelTrain, entorno)
+presabs <- c(rep(1, nrow(modelTrain)), rep(0, nrow(entorno)))
+trainVals <- as.data.frame(extract(modelAmb, trainPts)) #puntos del clima
+para.m <- cbind(presabs, trainVals)
+para.m <- na.omit(para.m)
+trainVals.m <- para.m[,-1]
+presabs.m <- para.m[,1]
+m <- maxent(p=presabs.m, x=trainVals.m)
+s <- predict(m,modelEnv)
+
+
+#usar filter
+
+#tes et training
+set.seed(1)
+#for training
+
+#forma1
+azar <-  sample(1:nrow(datos), round(nrow(datos) * 0.3))
+train <- datos[azar,]
+test <- datos[-azar,]
+
+plot(train, colo = "blue")
+plot(test, colo = "red")
+
+#forma2
+fold <- kfold(ocu, k = 5)
+modelTest <- ocu[fold == 2, ] # el segundo bloque se usara para testear
+modelTrain <- ocu[fold != 2, ] # los otros cuatro bloques se utlizaran en el modelo
+
+#forma3
+library(ENMeval)
+bloques <- get.block(occ = as.data.frame(datos@coords), bg.coords = as.data.frame(bg@coords))
+datos@data$bolques <- bloques$occ.grp
+bg@data$bolques <- bloques$bg.grp
+
+plot(datos)
+plot(subset(datos, bloques == 1), col = 1, add = T)
+plot(subset(datos, bloques == 2), col = 1, add = T)
+plot(subset(datos, bloques == 3), col = 1, add = T)
+plot(subset(datos, bloques == 4), col = 1, add = T)
+
+#se extraen las condiciones para la prueba, el training y el entorno
+p <- extract(clima, train)
+ptest <- extract(clima, test)
+a <- extract(clima, bg)
+
+pa <- c(rep(1, nrow(p)), rep(0, nrow(a))) #presente en el test y ausente en el entorno
+pder <- as.data.frame(rbind(p, a))
+
+
+#model
+
+mod <- dismo::maxent(x = pder, p = pa, args = c("responsecurves"))
+mod2 <- dismo::maxent(x = pder, p = pa, factors = "biome", args = c("-J", "-P"))
+
+response(mod)
+#predicciones
+
+ped1 <- predict(mod, areas)
+ped2 <- predict(mod, clim)
+
+#evaluaciones
+evaltrain <- dismo::evaluate(p = p, a = a, model = mod)
+plot(evaltrain, "ROC")
+
+print(evaltrain)
+
+#thresholds
+th1 <- threshold(evaltrain, stat = "no_omission")
+th2 <- threshold(evaltrain, stat = "spec_sens") #highest TSS
+th3 <- threshold(evaltrain, stat = "sensitivity", sensitivity = 0.9)
+th4 <- threshold(evaltrain, stat = "sensitivity", sensitivity = 0.95)
+
+
+#model1
+regclim <- extract(clima, ocu)
+##BIoclim model
+modelb <- bioclim(regclim) #te muestra los valores medios de cada variable
+pairs(medelb, pa = "p")
+
+
+bootstraping
+
+#desviacion estandar
+
+library(boot)
+
+AUC <- function(data = list(ptest, a), i) {
+	pres <- ptest[i]
+	aus <- a
+	combinado <- c(pres, aus)
+	label <- c(rep(1, length(pres)), rep(0, length(aus)))
+	predic <- prediction(combinado, label)
+	perfor <- performance(predic, "auc")
+	return(perfor@y.values[[1]])
+}
+
+AUC <- function(data = list(ptest, a, mod), i) {
+	pres <- p[i,]
+	aus <- a
+	eval <- evaluate(p = pres, a = aus, model = mod)
+	return(eval@auc)
+}
+
+
+bo <- boot(ptest, AUC, 100)
+bo
+plot(bo)
+boot.ci(bo)
