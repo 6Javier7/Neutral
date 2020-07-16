@@ -22,7 +22,7 @@ extent(bio1)
 head(values(bio1))
 length(values(bio1))
 
-#Registros
+#Registros Coenogonium
 ocurrencias <- gbif(genus = "Coenogonium", species = "linkii")
 write.csv(ocurrencias, "registros")
 ocurrencias <- subset(ocurrencias,!is.na(lat) & !is.na(lon))
@@ -136,3 +136,49 @@ plot(bo4)
 boot.ci(bo3)
 boot.ci(bo4)
 plot(ped2)
+
+ibrary(maptools)
+library(rgbif)
+
+clima <- getData("worldclim", var = 'bio', res = 2.5)
+
+multi <- function(species, conditions) {
+
+
+library(raster)
+library(maptools)
+
+species1 <- list()
+crc <- CRS("+init=epsg:4326")
+
+    for(specie in 1:nrow(species)){
+  specie <- gbif(geneius = species[i,], species = species[i + 1,])
+  ocurrencias <- subset(specie,!is.na(lat) & !is.na(lon)
+  ocurrencias <- ocurrencias[!duplicated(ocurrencias[c("lat", "lon"),])]
+  crs(ocurrencias) <- crc
+  map <- spTransform(conditions, crs(ocurrencias))
+  overlap <- over(ocurrencias, map)
+  cells <- cellFromXY(conditions[[1]], ocurrencias)
+  data <- ocurrencias[!duplicated(cells)]
+  species1[i] <- data}
+
+}
+
+
+multi2 <- function(ocurrencias) {
+  data <- list()
+  species <- unique(ocurrencias[,2])
+  for(i in 1:length(species)){
+  points <- subset(ocurrencias, species == species[i])
+  ocurrencias <- subset(points,!is.na(lat) & !is.na(lon)
+  ocurrencias <- ocurrencias[!duplicated(ocurrencias[c("lat", "lon"),])]
+  crs(ocurrencias) <- crc
+  map <- spTransform(conditions, crs(ocurrencias))
+  overlap <- over(ocurrencias, map)
+  cells <- cellFromXY(conditions[[1]], ocurrencias)
+  data1 <- ocurrencias[!duplicated(cells)]
+  data[i] <- data1
+  
+
+  }
+}
